@@ -69,7 +69,11 @@ Since `supportsTextAttributes()` is not synchronized, while one thread is readin
 
 #### <ins> Solution
 
-We offer two ways to fix the problem. The first solution is implemented as follows:
+We offer two ways to fix the data race described above.
+
+- Solution 1:
+
+The first solution is implemented as follows:
 
 ```java
 @Override
@@ -87,6 +91,8 @@ public TerminalOutput bold() {
 }
 ```
 In this way, we use the same lock, `lock()`, for all read and write access of `boldOn` and hence the reading and writing the variable must occur in a mutually-exclusive manner.
+
+- Solution 2:
 
 Instead of implementing synchronization in the `bold()` method, seeing that the data race is caused by under-synchronization of the `supportsTextAttributes()` method, our second solution is to use synchronization directly on `supportsTextAttributes()`:
 
