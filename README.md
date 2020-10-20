@@ -1,11 +1,14 @@
 # FacebookInfer
 
+## Introduction
 
-### [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
+## [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
 
-#### Issue 1:
+### Issue 1
 
-```
+#### Error Report from Infer
+
+```txt
 native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:203: warning: THREAD_SAFETY_VIOLATION
   Read/Write race. Non-private method `TerminalOutput TerminfoTerminal.bold()` indirectly reads without synchronization from `this.boldOn`. Potentially races with write in method `TerminfoTerminal.init()`.
  Reporting because a superclass `class net.rubygrapefruit.platform.terminal.TerminalOutput` is annotated `@ThreadSafe`, so we assume that this method can run in parallel with other non-private methods in the class (including itself).
@@ -16,70 +19,72 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
   205.           }
 ```
 
-### Relevant Code
+#### Relevant Code
 
 ```java
-    @Override
-    public TerminalOutput bold() {
-        if (!supportsTextAttributes()) {
-            return this;
-        }
-
-        synchronized (lock) {
-            write(boldOn);
-        }
+@Override
+public TerminalOutput bold() {
+    if (!supportsTextAttributes()) {
         return this;
     }
-``` 
 
-#### Relevant methods
-
-```java
-@Override
-    public boolean supportsTextAttributes() {
-        return boldOn != null && dim != null;
+    synchronized (lock) {
+        write(boldOn);
     }
+    return this;
+}
 ```
-    
+
+#### Relevant Methods
+
 ```java
 @Override
-    protected void init() {
-        synchronized (lock) {
-            FunctionResult result = new FunctionResult();
-            TerminfoFunctions.initTerminal(output.ordinal(), capabilities, result);
-            ...
-            boldOn = TerminfoFunctions.boldOn(result);
-            if (result.isFailed()) {
-                throw new NativeException(String.format("Could not determine bold on control sequence %s: %s", getOutputDisplay(), result.getMessage()));
-            }
-            dim = TerminfoFunctions.dimOn(result);
-            ...
+public boolean supportsTextAttributes() {
+    return boldOn != null && dim != null;
+}
+```
+
+```java
+@Override
+protected void init() {
+    synchronized (lock) {
+        FunctionResult result = new FunctionResult();
+        TerminfoFunctions.initTerminal(output.ordinal(), capabilities, result);
+        ...
+        boldOn = TerminfoFunctions.boldOn(result);
+        if (result.isFailed()) {
+            throw new NativeException(String.format("Could not determine bold on control sequence %s: %s", getOutputDisplay(), result.getMessage()));
         }
+        dim = TerminfoFunctions.dimOn(result);
+        ...
     }
+}
 ```
 #### Analysis
 
 ```supportsTextAttributes()``` reads whether ```boldOn``` is not null while ```write(boldOn)``` updates the value. So one thread potentially writes to the variable ```boldOn``` while another threads reads, leading to a data race.
 
 #### Solution
-```java
-    @Override
-    public TerminalOutput bold() {
-        synchronized (lock) {
-            if (!supportsTextAttributes()) {
-                return this;
-            }
-        }
 
-        synchronized (lock) {
-            write(boldOn);
+```java
+@Override
+public TerminalOutput bold() {
+    synchronized (lock) {
+        if (!supportsTextAttributes()) {
+            return this;
         }
-        return this;
     }
+
+    synchronized (lock) {
+        write(boldOn);
+    }
+    return this;
+}
 ```
 
+### Issue 2
 
-#### Issue 2
+#### Error Report from Infer
 
 ```txt
 native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:230: warning: THREAD_SAFETY_VIOLATION
@@ -95,28 +100,30 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
 #### Relevant Code
 
 ```java
-    @Override
-    public TerminalOutput dim() throws NativeException {
-        if (!supportsTextAttributes()) {
-            return this;
-        }
-
-        synchronized (lock) {
-            write(dim);
-            if (bright && foreground != null) {
-                write(getColor(foreground, false));
-            }
-            bright = false;
-        }
+@Override
+public TerminalOutput dim() throws NativeException {
+    if (!supportsTextAttributes()) {
         return this;
     }
+
+    synchronized (lock) {
+        write(dim);
+        if (bright && foreground != null) {
+            write(getColor(foreground, false));
+        }
+        bright = false;
+    }
+    return this;
+}
 ```
+
+#### Relevant Methods
 
 ```java
 @Override
-    public boolean supportsTextAttributes() {
-        return boldOn != null && dim != null;
-    }
+public boolean supportsTextAttributes() {
+    return boldOn != null && dim != null;
+}
 ```
 
 #### Analysis
@@ -124,29 +131,30 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
 From our first analysis, we suspect that the afformentioned method ```dim()``` also has a problem. The report points out that the method "`TerminalOutput TerminfoTerminal.dim()` indirectly reads without synchronization from `this.boldOn`". However, the problem with this particular method is that ```supportsTextAttributes()``` reads whether ```dim``` is not null while ```write(dim)``` updates the value. So one thread potentially writes to the variable ```dim``` while another threads reads, leading to a data race.
 
 #### Solution
-```java
-    @Override
-    public TerminalOutput dim() throws NativeException {
-        synchronized (lock) {
-            if (!supportsTextAttributes()) {
-                return this;
-            }
-        }
 
-        synchronized (lock) {
-            write(dim);
-            if (bright && foreground != null) {
-                write(getColor(foreground, false));
-            }
-            bright = false;
+```java
+@Override
+public TerminalOutput dim() throws NativeException {
+    synchronized (lock) {
+        if (!supportsTextAttributes()) {
+            return this;
         }
-        return this;
     }
+
+    synchronized (lock) {
+        write(dim);
+        if (bright && foreground != null) {
+            write(getColor(foreground, false));
+        }
+        bright = false;
+    }
+    return this;
+}
 ```
 
-#### issue 7
+### Issue 3
 
-#### report 
+#### Error Report from Infer
 
 ```txt
 native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:315: warning: THREAD_SAFETY_VIOLATION
@@ -158,7 +166,7 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
   316.               return this;
   317.           }
  ```
-### relevant code
+#### Relevant Code
 
 ```java
 @Override
@@ -174,7 +182,7 @@ public TerminalOutput hideCursor() throws NativeException {
 }
 ```
 
-### relevant method
+#### Relevant Methods
 
 ```java
 @Override
@@ -183,9 +191,9 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
-### analysis
+#### Analysis
 
-### solution
+#### Solution
 
 ```java
 @Override
@@ -203,9 +211,10 @@ public TerminalOutput hideCursor() throws NativeException {
 }
 ```
 
-#### Issue 8
+### Issue 4
 
-#### report
+#### Error Report from Infer
+
 ```txt
 native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:164: warning: THREAD_SAFETY_VIOLATION
   Read/Write race. Non-private method `boolean TerminfoTerminal.supportsCursorVisibility()` reads without synchronization from `this.hideCursor`. Potentially races with write in method `TerminfoTerminal.init()`.
@@ -216,8 +225,7 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
   165.       }
 ```
 
-
-### relevant code
+#### Relevant Code
 
 ```java
 @Override
@@ -226,57 +234,50 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
-#### relevant method
+#### Relevant Methods
 
 ```java
-    @Override
-    protected void init() {
-        synchronized (lock) {
-            FunctionResult result = new FunctionResult();
-            TerminfoFunctions.initTerminal(output.ordinal(), capabilities, result);
-            if (result.isFailed()) {
-                throw new NativeException(String.format("Could not open terminal for %s: %s", getOutputDisplay(), result.getMessage()));
-            }
-            ansiTerminal = isAnsiTerminal();
-            hideCursor = TerminfoFunctions.hideCursor(result);
-            if (result.isFailed()) {
-                throw new NativeException(String.format("Could not determine hide cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
-            }
-            showCursor = TerminfoFunctions.showCursor(result);
-            if (result.isFailed()) {
-                throw new NativeException(String.format("Could not determine show cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
-            }
-            ...
+@Override
+protected void init() {
+    synchronized (lock) {
+        FunctionResult result = new FunctionResult();
+        TerminfoFunctions.initTerminal(output.ordinal(), capabilities, result);
+        if (result.isFailed()) {
+            throw new NativeException(String.format("Could not open terminal for %s: %s", getOutputDisplay(), result.getMessage()));
         }
+        ansiTerminal = isAnsiTerminal();
+        hideCursor = TerminfoFunctions.hideCursor(result);
+        if (result.isFailed()) {
+            throw new NativeException(String.format("Could not determine hide cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
+        }
+        showCursor = TerminfoFunctions.showCursor(result);
+        if (result.isFailed()) {
+            throw new NativeException(String.format("Could not determine show cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
+        }
+        ...
     }
+}
 ```
 
-### Analysis
+#### Analysis
 
 The ```init()``` method write to the variable hide-cursor. However, we also read hide-cursor if we call the ```supportsCursorVisibility()``` method. Since we need to acquire the lock ```lock``` for the ```init()``` method, we use the same lock for the ```supportsCursorVisibility()``` method.
 
-
-
-
-
-
-
-#### solution
+#### Solution
 
 ```java
-    public boolean supportsCursorVisibility() {
-        synchronized (lock) {
-            return showCursor != null && hideCursor != null;
-        }
+public boolean supportsCursorVisibility() {
+    synchronized (lock) {
+        return showCursor != null && hideCursor != null;
     }
+}
 ```
 
+## [Rx Java](https://github.com/ReactiveX/RxJava)
 
-### [Rx Java](https://github.com/ReactiveX/RxJava)
+### Issue 5
 
-#### Issue 3
-
-#### Report
+#### Error Report from Infer
 
 ```txt
 src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableCombineLatest.java:178: warning: THREAD_SAFETY_VIOLATION
@@ -286,59 +287,57 @@ src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableCombineLa
   177.               cancelAll();
   178. >             drain();
   179.           }
-  180.   
+  180.
 ```
 
-#### Revelant code
+#### Revelant Code
 
 ```java
-        @Override
-        public void cancel() {
-            cancelled = true;
-            cancelAll();
-            drain();
-        }
+@Override
+public void cancel() {
+    cancelled = true;
+    cancelAll();
+    drain();
+}
 ```
 
-
-#### Relevant methods
+#### Relevant Methods
 
 ```java
-        void drain() {
-            if (getAndIncrement() != 0) {
-                return;
-            }
+void drain() {
+    if (getAndIncrement() != 0) {
+        return;
+    }
 
-            if (outputFused) {
-                drainOutput();
-            } else {
-                drainAsync();
-            }
-        }
+    if (outputFused) {
+        drainOutput();
+    } else {
+        drainAsync();
+    }
+}
 ```
 
 ```java
-        @SuppressWarnings("unchecked")
-        void drainAsync() {
-            final Subscriber<? super R> a = downstream;
-            final SpscLinkedArrayQueue<Object> q = queue;
-            int missed = 1;
-            for (;;) {
-                long r = requested.get();
-                long e = 0L;
-                while (e != r) {
-                    ...
-                    ((CombineLatestInnerSubscriber<T>)v).requestOne();
-                    e++;
-                }
-                    ...
-            }
+@SuppressWarnings("unchecked")
+void drainAsync() {
+    final Subscriber<? super R> a = downstream;
+    final SpscLinkedArrayQueue<Object> q = queue;
+    int missed = 1;
+    for (;;) {
+        long r = requested.get();
+        long e = 0L;
+        while (e != r) {
+            ...
+            ((CombineLatestInnerSubscriber<T>)v).requestOne();
+            e++;
         }
+            ...
+    }
+}
 ```
 
 ```java
 public void requestOne() {
-
     int p = produced + 1;
     if (p == limit) {
         produced = 0;
@@ -346,19 +345,17 @@ public void requestOne() {
     } else {
         produced = p;
     }
-
 }
 ```
 
-
 #### Analysis
-The report claims that "non-private method `void FlowableCombineLatest$CombineLatestCoordinator.cancel()` indirectly writes to field `v.produced` outside of synchronization." If two threads access the `produced()` method concurrently, then the value of `produced` and `p` can be overwritten. 
+
+The report claims that "non-private method `void FlowableCombineLatest$CombineLatestCoordinator.cancel()` indirectly writes to field `v.produced` outside of synchronization." If two threads access the `produced()` method concurrently, then the value of `produced` and `p` can be overwritten.
 
 #### Solution
 
 ```java
 synchronized public void requestOne() {
-
     int p = produced + 1;
     if (p == limit) {
         produced = 0;
@@ -366,26 +363,25 @@ synchronized public void requestOne() {
     } else {
         produced = p;
     }
-
 }
 ```
 
-#### issue 4
+### Issue 6
 
-#### report
+#### Error Report from Infer
 
 ```txt
 src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableBufferBoundary.java:302: warning: THREAD_SAFETY_VIOLATION
   Unprotected write. Non-private method `void FlowableBufferBoundary$BufferBoundarySubscriber.drain()` writes to field `this.emitted` outside of synchronization.
  Reporting because another access to the same memory occurs on a background thread, although this access may not.
   300.                   }
-  301.   
+  301.
   302. >                 emitted = e;
   303.                   missed = addAndGet(-missed);
   304.                   if (missed == 0) {
 ```
 
-### relevant code
+#### Relevant Code
 
 ```java
 void drain() {
@@ -456,19 +452,22 @@ void drain() {
     }
 }
 ```
-Note: Adding synchronized tag reduced the number of THREAD_SAFETY_VIOLATION from 212 to 203. This is because there are several variables (```e```, ```missed```, ```emitted```) are victims of thread violation. 
 
-### Solution
+#### Analysis
+
+Note: Adding synchronized tag reduced the number of THREAD_SAFETY_VIOLATION from 212 to 203. This is because there are several variables (```e```, ```missed```, ```emitted```) are victims of thread violation.
+
+#### Solution
+
 ```java
 synchronized void drain() {
     ...
 }
 ```
 
+### Issue 7
 
-#### issue 5
-
-#### report
+#### Error Report from Infer
 
 ```txt
 src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableGroupJoin.java:209: warning: THREAD_SAFETY_VIOLATION
@@ -480,69 +479,73 @@ src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableGroupJoin
   210.                           return;
   211.                       }
  ```
- #### relevant code
- 
+
+ #### Relevant Code
+
  ```java
-         void drain() {
-            if (getAndIncrement() != 0) {
-                return;
+void drain() {
+    if (getAndIncrement() != 0) {
+        return;
+    }
+    ...
+            if (mode == LEFT_VALUE) {
+                ...
+                ex = error.get();
+                if (ex != null) {
+                    q.clear();
+                    cancelAll();
+                    errorAll(a);
+                    return;
+                }
+
+                ...
             }
             ...
-                    if (mode == LEFT_VALUE) {
-                        ...
-                        ex = error.get();
-                        if (ex != null) {
-                            q.clear();
-                            cancelAll();
-                            errorAll(a);
-                            return;
-                        }
-
-                       ...
-                    }
-                   ...
-            }
-        }
+    }
+}
 ```
+
+#### Relevant Methods
 
 ```java
-        void errorAll(Subscriber<?> a) {
-            Throwable ex = ExceptionHelper.terminate(error);
+void errorAll(Subscriber<?> a) {
+    Throwable ex = ExceptionHelper.terminate(error);
 
-            for (UnicastProcessor<TRight> up : lefts.values()) {
-                up.onError(ex);
-            }
+    for (UnicastProcessor<TRight> up : lefts.values()) {
+        up.onError(ex);
+    }
 
-            lefts.clear();
-            rights.clear();
+    lefts.clear();
+    rights.clear();
 
-            a.onError(ex);
-        }
+    a.onError(ex);
+}
 ```
-#### analysis
+#### Analysis
 
 ```errorAll(a)``` changes the variable ```a``` which is not thread safe.
 
-#### solution
+#### Solution
 
 ```java
-        synchronized void errorAll(Subscriber<?> a) {
-            Throwable ex = ExceptionHelper.terminate(error);
+synchronized void errorAll(Subscriber<?> a) {
+    Throwable ex = ExceptionHelper.terminate(error);
 
-            for (UnicastProcessor<TRight> up : lefts.values()) {
-                up.onError(ex);
-            }
+    for (UnicastProcessor<TRight> up : lefts.values()) {
+        up.onError(ex);
+    }
 
-            lefts.clear();
-            rights.clear();
+    lefts.clear();
+    rights.clear();
 
-            a.onError(ex);
-        }
+    a.onError(ex);
+}
 ```
 
-#### Issue 6
+### Issue 8
 
-#### Report
+#### Error Report from Infer
+
 ``` txt
 src/main/java/io/reactivex/rxjava3/internal/operators/observable/ObservableGroupJoin.java:205: warning: THREAD_SAFETY_VIOLATION
   Unprotected write. Non-private method `void ObservableGroupJoin$GroupJoinDisposable.drain()` indirectly writes to field `up.error` outside of synchronization.
@@ -554,7 +557,7 @@ src/main/java/io/reactivex/rxjava3/internal/operators/observable/ObservableGroup
   207.                       }
 ```
 
-#### relevant code
+#### Relevant code
 
 ```java
 void drain() {
@@ -581,10 +584,11 @@ void drain() {
     }
 }
  ```
- #### ANALYSIS
- 
+
+ #### Analysis
+
  #### Solution
- 
+
  ```java
 synchronized void drain() {
     if (getAndIncrement() != 0) {
@@ -610,5 +614,8 @@ synchronized void drain() {
     }
 }
  ```
- 
-note: the number of thread safety violation reduces from 202 to 187.
+
+#### Note
+the number of thread safety violation reduces from 202 to 187.
+
+## Conclusion
