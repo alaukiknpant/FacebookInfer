@@ -144,6 +144,78 @@ From our first analysis, we suspect that the afformentioned method ```dim()``` a
     }
 ```
 
+#### issue 7
+
+#### report 
+
+```txt
+native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:315: warning: THREAD_SAFETY_VIOLATION
+  Read/Write race. Non-private method `TerminalOutput TerminfoTerminal.hideCursor()` indirectly reads without synchronization from `this.hideCursor`. Potentially races with write in method `TerminfoTerminal.init()`.
+ Reporting because a superclass `class net.rubygrapefruit.platform.terminal.TerminalOutput` is annotated `@ThreadSafe`, so we assume that this method can run in parallel with other non-private methods in the class (including itself).
+  313.       @Override
+  314.       public TerminalOutput hideCursor() throws NativeException {
+  315. >         if (!supportsCursorVisibility()) {
+  316.               return this;
+  317.           }
+ ```
+### relevant code
+
+```java
+@Override
+public TerminalOutput hideCursor() throws NativeException {
+    if (!supportsCursorVisibility()) {
+        return this;
+    }
+
+    synchronized (lock) {
+        write(hideCursor);
+    }
+    return this;
+}
+```
+
+### relevant method
+
+```java
+@Override
+public boolean supportsCursorVisibility() {
+    return showCursor != null && hideCursor != null;
+}
+```
+
+### analysis
+
+### solution
+
+```java
+@Override
+public TerminalOutput hideCursor() throws NativeException {
+    synchronized (lock) {
+        if (!supportsCursorVisibility()) {
+            return this;
+        }
+    }
+
+    synchronized (lock) {
+        write(hideCursor);
+    }
+    return this;
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ### [Rx Java](https://github.com/ReactiveX/RxJava)
 
 #### Issue 3
