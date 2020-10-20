@@ -121,7 +121,7 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
 
 #### Analysis
 
-Error 1: From our first analysis, we suspect that the afformentioned method ```dim()``` also has a problem. The report points out that the method "`TerminalOutput TerminfoTerminal.dim()` indirectly reads without synchronization from `this.boldOn`". However, the problem with this particular method is that ```supportsTextAttributes()``` reads whether ```dim``` is not null while ```write(dim)``` updates the value. So one thread potentially writes to the variable ```dim``` while another threads reads, leading to a data race.
+From our first analysis, we suspect that the afformentioned method ```dim()``` also has a problem. The report points out that the method "`TerminalOutput TerminfoTerminal.dim()` indirectly reads without synchronization from `this.boldOn`". However, the problem with this particular method is that ```supportsTextAttributes()``` reads whether ```dim``` is not null while ```write(dim)``` updates the value. So one thread potentially writes to the variable ```dim``` while another threads reads, leading to a data race.
 
 #### Solution
 ```java
@@ -142,4 +142,102 @@ Error 1: From our first analysis, we suspect that the afformentioned method ```d
         }
         return this;
     }
+```
+
+### [Rx Java](https://github.com/ReactiveX/RxJava)
+
+#### Issue 3
+
+#### Report
+
+```txt
+src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableCombineLatest.java:178: warning: THREAD_SAFETY_VIOLATION
+  Unprotected write. Non-private method `void FlowableCombineLatest$CombineLatestCoordinator.cancel()` indirectly writes to field `v.produced` outside of synchronization.
+ Reporting because another access to the same memory occurs on a background thread, although this access may not.
+  176.               cancelled = true;
+  177.               cancelAll();
+  178. >             drain();
+  179.           }
+  180.   
+```
+
+#### Revelant code
+
+```java
+        @Override
+        public void cancel() {
+            cancelled = true;
+            cancelAll();
+            drain();
+        }
+```
+
+
+#### Relevant methods
+
+```java
+        void drain() {
+            if (getAndIncrement() != 0) {
+                return;
+            }
+
+            if (outputFused) {
+                drainOutput();
+            } else {
+                drainAsync();
+            }
+        }
+```
+
+```java
+        @SuppressWarnings("unchecked")
+        void drainAsync() {
+            final Subscriber<? super R> a = downstream;
+            final SpscLinkedArrayQueue<Object> q = queue;
+            int missed = 1;
+            for (;;) {
+                long r = requested.get();
+                long e = 0L;
+                while (e != r) {
+                    ...
+                    ((CombineLatestInnerSubscriber<T>)v).requestOne();
+                    e++;
+                }
+                    ...
+            }
+        }
+```
+
+```java
+public void requestOne() {
+
+    int p = produced + 1;
+    if (p == limit) {
+        produced = 0;
+        get().request(p);
+    } else {
+        produced = p;
+    }
+
+}
+```
+
+
+#### Analysis
+The report claims that "non-private method `void FlowableCombineLatest$CombineLatestCoordinator.cancel()` indirectly writes to field `v.produced` outside of synchronization." If two threads access the `produced()` method concurrently, then the value of `produced` and `p` can be overwritten. 
+
+#### Solution
+
+```java
+synchronized public void requestOne() {
+
+    int p = produced + 1;
+    if (p == limit) {
+        produced = 0;
+        get().request(p);
+    } else {
+        produced = p;
+    }
+
+}
 ```
