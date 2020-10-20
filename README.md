@@ -336,3 +336,78 @@ synchronized void drain() {
     ...
 }
 ```
+
+
+#### issue 5
+
+#### report
+
+```txt
+src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableGroupJoin.java:209: warning: THREAD_SAFETY_VIOLATION
+  Unprotected write. Non-private method `void FlowableGroupJoin$GroupJoinSubscription.drain()` indirectly writes to field `up.error` outside of synchronization.
+ Reporting because another access to the same memory occurs on a background thread, although this access may not.
+  207.                           q.clear();
+  208.                           cancelAll();
+  209. >                         errorAll(a);
+  210.                           return;
+  211.                       }
+ ```
+ #### relevant code
+ 
+ ```java
+         void drain() {
+            if (getAndIncrement() != 0) {
+                return;
+            }
+            ...
+                    if (mode == LEFT_VALUE) {
+                        ...
+                        ex = error.get();
+                        if (ex != null) {
+                            q.clear();
+                            cancelAll();
+                            errorAll(a);
+                            return;
+                        }
+
+                       ...
+                    }
+                   ...
+            }
+        }
+```
+
+```java
+        void errorAll(Subscriber<?> a) {
+            Throwable ex = ExceptionHelper.terminate(error);
+
+            for (UnicastProcessor<TRight> up : lefts.values()) {
+                up.onError(ex);
+            }
+
+            lefts.clear();
+            rights.clear();
+
+            a.onError(ex);
+        }
+```
+#### analysis
+
+```errorAll(a)``` changes the variable ```a``` which is not thread safe.
+
+#### solution
+
+```java
+        synchronized void errorAll(Subscriber<?> a) {
+            Throwable ex = ExceptionHelper.terminate(error);
+
+            for (UnicastProcessor<TRight> up : lefts.values()) {
+                up.onError(ex);
+            }
+
+            lefts.clear();
+            rights.clear();
+
+            a.onError(ex);
+        }
+```
