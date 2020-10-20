@@ -241,3 +241,98 @@ synchronized public void requestOne() {
 
 }
 ```
+
+#### issue 4
+
+#### report
+
+```txt
+src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableBufferBoundary.java:302: warning: THREAD_SAFETY_VIOLATION
+  Unprotected write. Non-private method `void FlowableBufferBoundary$BufferBoundarySubscriber.drain()` writes to field `this.emitted` outside of synchronization.
+ Reporting because another access to the same memory occurs on a background thread, although this access may not.
+  300.                   }
+  301.   
+  302. >                 emitted = e;
+  303.                   missed = addAndGet(-missed);
+  304.                   if (missed == 0) {
+```
+
+### relevant code
+
+```java
+void drain() {
+    if (getAndIncrement() != 0) {
+        return;
+    }
+
+    int missed = 1;
+    long e = emitted;
+    Subscriber<? super C> a = downstream;
+    SpscLinkedArrayQueue<C> q = queue;
+
+    for (;;) {
+        long r = requested.get();
+
+        while (e != r) {
+            if (cancelled) {
+                q.clear();
+                return;
+            }
+
+            boolean d = done;
+            if (d && errors.get() != null) {
+                q.clear();
+                errors.tryTerminateConsumer(a);
+                return;
+            }
+
+            C v = q.poll();
+            boolean empty = v == null;
+
+            if (d && empty) {
+                a.onComplete();
+                return;
+            }
+
+            if (empty) {
+                break;
+            }
+
+            a.onNext(v);
+            e++;
+        }
+
+        if (e == r) {
+            if (cancelled) {
+                q.clear();
+                return;
+            }
+
+            if (done) {
+                if (errors.get() != null) {
+                    q.clear();
+                    errors.tryTerminateConsumer(a);
+                    return;
+                } else if (q.isEmpty()) {
+                    a.onComplete();
+                    return;
+                }
+            }
+        }
+
+        emitted = e;
+        missed = addAndGet(-missed);
+        if (missed == 0) {
+            break;
+        }
+    }
+}
+```
+Note: Adding synchronized tag reduced the number of THREAD_SAFETY_VIOLATION from 212 to 203. This is because there are several variables (```e```, ```missed```, ```emitted```) are victims of thread violation. 
+
+### Solution
+```java
+synchronized void drain() {
+    ...
+}
+```
