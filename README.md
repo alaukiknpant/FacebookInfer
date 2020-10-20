@@ -3,7 +3,7 @@
 
 ### [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
 
-#### Issue:
+#### Issue 1:
 
 ```
 native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:203: warning: THREAD_SAFETY_VIOLATION
@@ -31,8 +31,17 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
         return this;
     }
 ``` 
-    
+
+#### Relevant methods
+
+```java
+@Override
+    public boolean supportsTextAttributes() {
+        return boldOn != null && dim != null;
+    }
 ```
+    
+```java
 @Override
     protected void init() {
         synchronized (lock) {
@@ -48,4 +57,27 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
         }
     }
 ```
+#### Analysis
+
+```supportsTextAttributes()``` reads whether ```boldOn``` is not null while ```write(boldOn)``` updates the value. So one thread potentially writes to the variable ```boldOn``` while another threads reads, leading to a data race.
+
+#### Solution
+```java
+    @Override
+    public TerminalOutput bold() {
+        synchronized (lock) {
+            if (!supportsTextAttributes()) {
+                return this;
+            }
+        }
+
+        synchronized (lock) {
+            write(boldOn);
+        }
+        return this;
+    }
+```
+
+
+
 
