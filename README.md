@@ -203,6 +203,57 @@ public TerminalOutput hideCursor() throws NativeException {
 }
 ```
 
+#### Issue 8
+
+#### report
+```txt
+native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:164: warning: THREAD_SAFETY_VIOLATION
+  Read/Write race. Non-private method `boolean TerminfoTerminal.supportsCursorVisibility()` reads without synchronization from `this.hideCursor`. Potentially races with write in method `TerminfoTerminal.init()`.
+ Reporting because a superclass `class net.rubygrapefruit.platform.terminal.TerminalOutput` is annotated `@ThreadSafe`, so we assume that this method can run in parallel with other non-private methods in the class (including itself).
+  162.       @Override
+  163.       public boolean supportsCursorVisibility() {
+  164. >         return showCursor != null && hideCursor != null;
+  165.       }
+```
+
+
+### relevant code
+
+```java
+@Override
+public boolean supportsCursorVisibility() {
+    return showCursor != null && hideCursor != null;
+}
+```
+
+#### relevant method
+
+```java
+    @Override
+    protected void init() {
+        synchronized (lock) {
+            FunctionResult result = new FunctionResult();
+            TerminfoFunctions.initTerminal(output.ordinal(), capabilities, result);
+            if (result.isFailed()) {
+                throw new NativeException(String.format("Could not open terminal for %s: %s", getOutputDisplay(), result.getMessage()));
+            }
+            ansiTerminal = isAnsiTerminal();
+            hideCursor = TerminfoFunctions.hideCursor(result);
+            if (result.isFailed()) {
+                throw new NativeException(String.format("Could not determine hide cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
+            }
+            showCursor = TerminfoFunctions.showCursor(result);
+            if (result.isFailed()) {
+                throw new NativeException(String.format("Could not determine show cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
+            }
+            ...
+        }
+    }
+```
+
+### Analysis
+
+The ```init()``` method write to the variable hide-cursor. However, we also read hide-cursor if we call the ```supportsCursorVisibility()``` method. Since we need to acquire the lock ```lock``` for the ```init()``` method, we use the same lock for the ```supportsCursorVisibility()``` method.
 
 
 
@@ -210,10 +261,15 @@ public TerminalOutput hideCursor() throws NativeException {
 
 
 
+#### solution
 
-
-
-
+```java
+    public boolean supportsCursorVisibility() {
+        synchronized (lock) {
+            return showCursor != null && hideCursor != null;
+        }
+    }
+```
 
 
 ### [Rx Java](https://github.com/ReactiveX/RxJava)
