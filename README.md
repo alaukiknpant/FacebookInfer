@@ -2,7 +2,9 @@
 
 ## Introduction
 
-## [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
+___
+#### Issues 1-4 refer to the following repo: [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
+___
 
 ## Issue 1
 
@@ -87,6 +89,8 @@ public TerminalOutput bold() {
 }
 ```
 In this way, we use the same lock for all read and write access of `boldOn` and hence the reading and writing the variable must occur in a mutually-exclusive manner.
+
+___
 
 ## Issue 2
 
@@ -316,9 +320,11 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
-## [Rx Java](https://github.com/ReactiveX/RxJava)
+___
 
-### Issue 5
+#### Issues 5-8 refer to the following repo: [Rx Java](https://github.com/ReactiveX/RxJava)
+
+___
 
 #### <ins> Error Report from Infer
 
