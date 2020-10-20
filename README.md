@@ -411,3 +411,76 @@ src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableGroupJoin
             a.onError(ex);
         }
 ```
+
+#### Issue 6
+
+#### Report
+``` txt
+src/main/java/io/reactivex/rxjava3/internal/operators/observable/ObservableGroupJoin.java:205: warning: THREAD_SAFETY_VIOLATION
+  Unprotected write. Non-private method `void ObservableGroupJoin$GroupJoinDisposable.drain()` indirectly writes to field `up.error` outside of synchronization.
+ Reporting because another access to the same memory occurs on a background thread, although this access may not.
+  203.                           q.clear();
+  204.                           cancelAll();
+  205. >                         errorAll(a);
+  206.                           return;
+  207.                       }
+```
+
+#### relevant code
+
+```java
+void drain() {
+    if (getAndIncrement() != 0) {
+        return;
+    }
+
+    int missed = 1;
+    SpscLinkedArrayQueue<Object> q = queue;
+    Observer<? super R> a = downstream;
+
+    for (;;) {
+        for (;;) {
+            ...
+
+            Throwable ex = error.get();
+            if (ex != null) {
+                q.clear();
+                cancelAll();
+                errorAll(a);
+                return;
+            }
+     ...
+    }
+}
+ ```
+ #### ANALYSIS
+ 
+ #### Solution
+ 
+ ```java
+synchronized void drain() {
+    if (getAndIncrement() != 0) {
+        return;
+    }
+
+    int missed = 1;
+    SpscLinkedArrayQueue<Object> q = queue;
+    Observer<? super R> a = downstream;
+
+    for (;;) {
+        for (;;) {
+            ...
+
+            Throwable ex = error.get();
+            if (ex != null) {
+                q.clear();
+                cancelAll();
+                errorAll(a);
+                return;
+            }
+     ...
+    }
+}
+ ```
+ 
+note: the number of thread safety violation reduces from 202 to 187.
