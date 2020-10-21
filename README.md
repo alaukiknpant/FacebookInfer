@@ -182,7 +182,7 @@ public TerminalOutput dim() throws NativeException {
 }
 ```
 
-Given that the two bugs in Issue 1 and Issue 2 are effectively the same, we figured that there might be better ways to implement synchronization. Instead of adding synchronization around the if-statement with “supportsTextAttributes()” in the `dim()` method, our second solution to solve the dara race problem is to use synchronization directly on `supportsTextAttributes()`:
+Given that the two bugs in Issue 1 and Issue 2 are effectively the same, we figured that there might be better ways to implement synchronization. Instead of adding synchronization around the if-statement with “supportsTextAttributes()” in the `dim()` method, our second solution to solve the data race problem is to use synchronization directly on `supportsTextAttributes()`:
 
 ```java
 public boolean supportsTextAttributes() {
@@ -192,7 +192,7 @@ public boolean supportsTextAttributes() {
 }
 ```
 
-Again, we need to use the same lock "lock" as the the lock for the synchronization of `init()`. This change would eliminate the error we had previously as well. In fact, we noticed that the second fix helps reducing the number of errors in the Infer report by 2, and we suspect that this is because another method that calls `supportsTextAttributes()` also had a similar data race problem previously and is now fixed through synchronization.
+Again, we need to synchronize around the object called `lock` because we synchronize `init()` around the same `lock` object. This change would eliminate the error we had previously as well. In fact, we noticed that the second fix helps reducing the number of errors in the Infer report by 2, and we suspect that this is because another method that calls `supportsTextAttributes()` also had a similar data race problem previously and is now fixed through synchronization.
 
 Just to double check that implementing synchronization in the `supportsTextAttributes()` method directly could resolve the data race in both Issue 1 and Issue 2, we tried removing the synchronziation lock we implemented in the solution of Issue 1 and the number of errors indeed did not increase.
 
