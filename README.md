@@ -441,13 +441,73 @@ public TerminalOutput reset() throws NativeException {
 
 Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the object called `lock`. by fixing this issue with under-synchronization of the call to methods that contains the write access to `this.bright`, we were able to reduce the number of errors in the Infer analysis by 5.
 
+## Issue 10
 
+#### <ins> Error Report from Infer
 
+```txt
+native-platform/src/main/java/net/rubygrapefruit/platform/internal/AnsiTerminal.java:127: warning: THREAD_SAFETY_VIOLATION
+  Read/Write race. Non-private method `TerminalOutput AnsiTerminal.bright()` reads with synchronization from `this.foreground`. Potentially races with unsynchronized write in method `AnsiTerminal.foreground(...)`.
+ Reporting because a superclass `class net.rubygrapefruit.platform.terminal.TerminalOutput` is annotated `@ThreadSafe`, so we assume that this method can run in parallel with other non-private methods in the class (including itself).
+  125.           try {
+  126.               bright = true;
+  127. >             if (foreground != null) {
+  128.                   outputStream.write(BRIGHT_FOREGROUND.get(foreground.ordinal()));
+  129.               }
+```
 
+#### Relevant Code
 
+```java
+@Override
+synchronized public TerminalOutput bright() throws NativeException {
+    try {
+        bright = true;
+        if (foreground != null) {
+            outputStream.write(BRIGHT_FOREGROUND.get(foreground.ordinal()));
+        }
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
 
+After fixing the previous bug, Infer is still complaining about the method `bright()`, but this time the problem is with something else. Notice that the `bright()` method checks whether `this.foreground` is not null, so this is a read access of the variable `this.foregorund`. Again, the class `AnsiTerminal` operates in a multi-threaded environment. We know this because
+its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe`. Though the method `bright()` is now synchronized, there are under-synchronized methods with write access to `this.foreground` in the class `AnsiTerminal`, which leads to a data race in the memory location `this.foreground`.
 
+Through a bit of research, we discovered that the following two methods, `foreground(color)` and `defaultForeground()` respectively, have write access to `this.foreground` and is currently not synchronized.
 
+```java
+public TerminalOutput foreground(Color color) throws NativeException {
+    try {
+        if (bright) {
+            outputStream.write(BRIGHT_FOREGROUND.get(color.ordinal()));
+        } else {
+            outputStream.write(FOREGROUND.get(color.ordinal()));
+        }
+        foreground = color;
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+```java
+@Override
+public TerminalOutput defaultForeground() throws NativeException {
+    try {
+        outputStream.write(DEFAULT_FG);
+        foreground = null;
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not switch to bold output on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the object called `lock`. by fixing this issue with under-synchronization of the call to methods that contains the write access to `this.foreground`, we were able to reduce the number of errors in the Infer analysis by 5.
 
 ___
 
