@@ -3,14 +3,14 @@
 ## Introduction
 
 In this report, we explore the use of a state-of-the-art tool called [Facebook Infer](https://fbinfer.com) for finding concurrency bugs in large Java codebases.
-Facebook's Infer is based on [this]() paper which describes RacerD - a 
-"static program analysis for detecting data races in Java programs which is fast, 
-can scale to large code, and has proven effective in an industrial software 
+Facebook's Infer is based on [this]() paper which describes RacerD - a
+"static program analysis for detecting data races in Java programs which is fast,
+can scale to large code, and has proven effective in an industrial software
 engineering scenario."
 
 RacerD has flagged over 2500 issues after being deployed for a year at Facebook.[[1]](https://ilyasergey.net/papers/racerd-oopsla18.pdf)
 RacerD is used to detect data races, a concurrency bug. A data race in concurrent Java code occurs when two or more threads in a single process access the same memory location concurrently, and
-at least one of the accesses is for writing, and the threads are not using any exclusive 
+at least one of the accesses is for writing, and the threads are not using any exclusive
 locks to control their accesses to that memory.[[2]](https://ilyasergey.net/YSC3248/week-11-races.html)
 
 RacerD's distinguishing feature is that it is compositional, i.e. it does not do a whole program
@@ -278,19 +278,19 @@ protected void init() {
 Here, the class `TerminfoTerminal` that contains the afformentioned methods operates in a multi-threaded environment. We know this because
 its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe` and also by the fact that the methods ```hideCursor()``` and ```init()``` have the synchronized modifiers in them.
 ```TerminfoTerminal``` has several data races and one such data race happens in a memory location ````this.hideCursor````.
- 
+
  We claim that a data race occurs in this location because of the potential of two concurrent accesses to the same memory location where one of them is a write.
- One place where a thread can write to ````this.hideCursor```` happens in ```hideCursor()``` method (referring to code - `write(hideCursor)` - in Method 1). Notice here that the write is 
+ One place where a thread can write to ````this.hideCursor```` happens in ```hideCursor()``` method (referring to code - `write(hideCursor)` - in Method 1). Notice here that the write is
  synchronized on an object called ```lock```. Hence, we infer that subsequent blocks of code that order reads and writes to the memory location ````this.hideCursor````
  must be synchronized on the object called ```lock```.
- 
+
  There might several places other where we read or write from this afformentioned memory location. We will point out two locations based on the error reports we got.
  One of them is a write in method `TerminfoTerminal.init()`(referred in the error report 2) which is shown in Method 3 above. Notice that this method is already synchronized around the object called lock. Another method where we access this memory location is
- ```supportsCursorVisibility()``` (see Method 2 above) called in method ```hideCursor()``` itself. 
- 
+ ```supportsCursorVisibility()``` (see Method 2 above) called in method ```hideCursor()``` itself.
+
  To prevent a data race, we can synchronize the call to ```supportsCursorVisibility() ``` in ```hideCursor()``` method on the object called ```lock``` as a quick fix.
  However, a better solution that fixes both the errors would be to synchronize the ```supportsCursorVisibility()``` method around the object called ```lock```.
- 
+
 
 #### Solution
 
@@ -323,6 +323,130 @@ public boolean supportsCursorVisibility() {
     }
 }
 ```
+
+## Issue 9
+
+#### <ins> Error Report from Infer
+
+```txt
+native-platform/src/main/java/net/rubygrapefruit/platform/internal/AnsiTerminal.java:126: warning: THREAD_SAFETY_VIOLATION
+  Unprotected write. Non-private method `TerminalOutput AnsiTerminal.bright()` writes to field `this.bright` outside of synchronization.
+ Reporting because a superclass `class net.rubygrapefruit.platform.terminal.TerminalOutput` is annotated `@ThreadSafe`, so we assume that this method can run in parallel with other non-private methods in the class (including itself).
+  124.       public TerminalOutput bright() throws NativeException {
+  125.           try {
+  126. >             bright = true;
+  127.               if (foreground != null) {
+  128.                   outputStream.write(BRIGHT_FOREGROUND.get(foreground.ordinal()));
+```
+
+#### Relevant Code
+
+```java
+@Override
+public TerminalOutput bright() throws NativeException {
+    try {
+        bright = true;
+        if (foreground != null) {
+            outputStream.write(BRIGHT_FOREGROUND.get(foreground.ordinal()));
+        }
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+Here, the class `AnsiTerminal` operates in a multi-threaded environment. We know this because
+its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe`. We claim that there exists one data race in the memory location `this.bright`.
+
+In the above method `bright()`, one thread can write `this.bright` as `true` without synchronization. However, there are several other read and write access to `this.bright` in the class `AnsiTerminal`. For instance, the following method, `foreground(color)` has read access to `this.bright`.
+
+```java
+public TerminalOutput foreground(Color color) throws NativeException {
+    try {
+        if (bright) {
+            outputStream.write(BRIGHT_FOREGROUND.get(color.ordinal()));
+        } else {
+            outputStream.write(FOREGROUND.get(color.ordinal()));
+        }
+        foreground = color;
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+Hence, we claim that a data race occurs in this location because of the potential of two concurrent accesses to the same memory location where one of them is a write. While one thread is writing to `this.bright` in `bright()` method, another thread might potentially be reading the variable `this.bright` in `foreground(color)`.
+
+To prevent a data race, we can synchronize the call to `bright() ` method on the object called `lock`.
+
+#### Solution
+
+```java
+@Override
+synchronized public TerminalOutput bright() throws NativeException {
+    try {
+        bright = true;
+        if (foreground != null) {
+            outputStream.write(BRIGHT_FOREGROUND.get(foreground.ordinal()));
+        }
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+Additionally, through a bit of searching, we noticed that `bright()` is not the sole instance in the class `AnsiTerminal` without synchronization. We suspect that the following method, `dim()`, `normal()`, and `reset()`, might have a data race problem for the same reason.
+
+```java
+@Override
+public TerminalOutput dim() throws NativeException {
+    try {
+        outputStream.write(DIM_ON);
+        bright = false;
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+```java
+public TerminalOutput normal() throws NativeException {
+    try {
+        outputStream.write(NORMAL_INTENSITY);
+        if (foreground != null && bright) {
+            outputStream.write(FOREGROUND.get(foreground.ordinal()));
+        }
+        bright = false;
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not switch to normal output on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+
+public TerminalOutput reset() throws NativeException {
+    try {
+        outputStream.write(RESET);
+        foreground = null;
+        bright = false;
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not reset output on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the object called `lock`. by fixing this issue with under-synchronization of the call to methods that contains the write access to `this.bright`, we were able to reduce the number of errors in the Infer analysis by 5.
+
+
+
+
+
+
+
 
 
 ___
@@ -532,13 +656,13 @@ void drain() {
 
 #### <ins> Analysis
 
-From the error report, we understand that the ```drain()``` method (note that this method is different from the one referenced in Issue 5) 
+From the error report, we understand that the ```drain()``` method (note that this method is different from the one referenced in Issue 5)
 writes to the feild ```emitted```. We also understand that the memory location
 occupied by this feild can potentially be accessed by background threads concurrently.
 Hence, we infer the potential of a data race, i.e. two or more concurrent accesses to this memory location where one of them is a write.
 
 In particular, we argue that if two methods call this ```drain()``` method concurrently then the
-feild ```emitted``` can be a victim to two or more concurrent accesses where atleast one of them is a 
+feild ```emitted``` can be a victim to two or more concurrent accesses where atleast one of them is a
 ```write```.
 
 
@@ -588,13 +712,14 @@ void drain() {
                     errorAll(a);
                     return;
                 }
-
                 ...
             }
             ...
     }
 }
 ```
+
+In this example, Infer suggests that there is a potential data race problem with `errorAll(a)` on line 209. To see if this is indeed the case, we looked into the the `errorAll()` method.
 
 #### <ins> Relevant Methods
 
