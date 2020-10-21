@@ -522,7 +522,7 @@ public TerminalOutput defaultForeground() throws NativeException {
 }
 ```
 
-Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the object called `lock`. by fixing this issue with under-synchronization of the call to methods that contains the write access to `this.foreground`, we were able to reduce the number of errors in the Infer analysis by 5.
+Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write access to `this.foreground`, we were able to reduce the number of errors in the Infer analysis by 5 like in Issue 10.
 
 ## Issue 11
 
