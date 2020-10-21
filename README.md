@@ -227,7 +227,7 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
 ```
 
 
-#### Method 1
+##### Method 1
 
 ```java
 @Override
@@ -243,7 +243,7 @@ public TerminalOutput hideCursor() throws NativeException {
 }
 ```
 
-#### Method 2
+##### Method 2
 
 ```java
 @Override
@@ -252,7 +252,7 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
-#### Method 3
+##### Method 3
 
 ```java
 @Override
@@ -323,7 +323,7 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
-## Issue 9
+## Issue 5
 
 #### <ins> Error Report from Infer
 
@@ -456,7 +456,7 @@ public TerminalOutput reset() throws NativeException {
 
 Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write access to `this.bright`, we were able to reduce the number of errors in the Infer analysis by 5.
 
-## Issue 10
+## Issue 6
 
 #### <ins> Error Report from Infer
 
@@ -522,9 +522,9 @@ public TerminalOutput defaultForeground() throws NativeException {
 }
 ```
 
-Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write access to `this.foreground`, we were able to reduce the number of errors in the Infer analysis by 5 like in Issue 10.
+Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write access to `this.foreground`, we were able to reduce the number of errors in the Infer analysis by 5 like in Issue 5.
 
-## Issue 11
+## Issue 7
 
 #### <ins> Error Report from Infer
 
@@ -553,10 +553,10 @@ ___
 
 
 
-#### Issues 5-8 refer to the following repo: [Rx Java](https://github.com/ReactiveX/RxJava)
+#### Issues 8-12 refer to the following repo: [Rx Java](https://github.com/ReactiveX/RxJava)
 
 ___
-## Issue 5
+## Issue 8
 
 #### <ins> Error Report from Infer
 
@@ -573,7 +573,7 @@ src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableCombineLa
 
 #### <ins> Revelant Methods
 
-##### Method 1
+###### Method 1
 ```java
 @Override
 public void cancel() {
@@ -583,7 +583,7 @@ public void cancel() {
 }
 ```
 
-##### Method 2
+###### Method 2
 
 ```java
 void drain() {
@@ -666,7 +666,7 @@ synchronized public void requestOne() {
 }
 ```
 
-### Issue 6
+### Issue 9
 
 #### <ins> Error Report from Infer
 
@@ -779,7 +779,7 @@ synchronized void drain() {
 }
 ```
 
-### Issue 7
+### Issue 10
 
 #### <ins> Error Report from Infer
 
