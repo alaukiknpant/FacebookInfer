@@ -761,4 +761,4 @@ synchronized void drain() {
 
 ## Conclusion
 
-Clearly, `Infer` was able to catch bugs on fairly popular repositories coded by experienced programmers. This indeed proves that Concurrency is Hard.
+In this research project, we were able to catch bugs on fairly popular repositories coded by experienced programmers with the help of a very powerful code analysis tool `Infer`. This indeed proves that Concurrency is Hard. We also discovered that many safety violations are very similar in nature, and hence a small fix can possibly remove several bugs at the same time. Furthermore, we discovered that `Infer` is not able to distinguish between the locks with different identities. We believe that this is due to trade-off between considerations such as soundness, efficiency, and user-friendliness.
