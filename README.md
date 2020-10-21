@@ -1,7 +1,21 @@
-# FacebookInfer
+# Using Facebook Infer to Detect Data Races in Java
 
 ## Introduction
 
+In this report, we explore the use of a state-of-the-art tool called [Facebook Infer](https://fbinfer.com) for finding concurrency bugs in large Java codebases.
+Facebook's Infer is based on [this]() paper which describes RacerD - a 
+"static program analysis for detecting data races in Java programs which is fast, 
+can scale to large code, and has proven effective in an industrial software 
+engineering scenario."
+
+RacerD has flagged over 2500 issues after being deployed for a year at Facebook.[[1]](https://ilyasergey.net/papers/racerd-oopsla18.pdf)
+RacerD is used to detect data races, a concurrency bug. A data race in concurrent Java code occurs when two or more threads in a single process access the same memory location concurrently, and
+at least one of the accesses is for writing, and the threads are not using any exclusive 
+locks to control their accesses to that memory.[[2]](https://ilyasergey.net/YSC3248/week-11-races.html)
+
+RacerD's distinguishing feature is that it is compositional, i.e. it does not do a whole program
+analysis. It does so by reasoning sequentially about memory accesses, locks and threads. This report
+highlights the issues we found on popular non-trivial Java codebases using this tool.
 ___
 #### Issues 1-4 refer to the following repo: [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
 ___
@@ -179,10 +193,11 @@ Just to double check that implementing synchronization in the `supportsTextAttri
 
 ___
 
-## Issue 3
+## Issue 3 and 4
 
 #### Error Report from Infer
 
+_Error 1:_
 ```txt
 native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:315: warning: THREAD_SAFETY_VIOLATION
   Read/Write race. Non-private method `TerminalOutput TerminfoTerminal.hideCursor()` indirectly reads without synchronization from `this.hideCursor`. Potentially races with write in method `TerminfoTerminal.init()`.
@@ -193,6 +208,20 @@ native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTermi
   316.               return this;
   317.           }
  ```
+
+_Error 2:_
+
+```txt
+native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:164: warning: THREAD_SAFETY_VIOLATION
+  Read/Write race. Non-private method `boolean TerminfoTerminal.supportsCursorVisibility()` reads without synchronization from `this.hideCursor`. Potentially races with write in method `TerminfoTerminal.init()`.
+ Reporting because a superclass `class net.rubygrapefruit.platform.terminal.TerminalOutput` is annotated `@ThreadSafe`, so we assume that this method can run in parallel with other non-private methods in the class (including itself).
+  162.       @Override
+  163.       public boolean supportsCursorVisibility() {
+  164. >         return showCursor != null && hideCursor != null;
+  165.       }
+```
+
+
 #### Method 1
 
 ```java
@@ -218,11 +247,36 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
+### Method 3
+
+```java
+@Override
+protected void init() {
+    synchronized (lock) {
+        FunctionResult result = new FunctionResult();
+        TerminfoFunctions.initTerminal(output.ordinal(), capabilities, result);
+        if (result.isFailed()) {
+            throw new NativeException(String.format("Could not open terminal for %s: %s", getOutputDisplay(), result.getMessage()));
+        }
+        ansiTerminal = isAnsiTerminal();
+        hideCursor = TerminfoFunctions.hideCursor(result);             //****** hideCursor refereced here ******
+        if (result.isFailed()) {
+            throw new NativeException(String.format("Could not determine hide cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
+        }
+        showCursor = TerminfoFunctions.showCursor(result);
+        if (result.isFailed()) {
+            throw new NativeException(String.format("Could not determine show cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
+        }
+        ...
+    }
+}
+```
+
 #### Analysis
 
 
 Here, the class `TerminfoTerminal` that contains the afformentioned methods operates in a multi-threaded environment. We know this because
-its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe` and also by the fact that the method ```hideCursor()``` has synchronized modifiers in it.
+its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe` and also by the fact that the methods ```hideCursor()``` and ```init()``` have the synchronized modifiers in them.
 ```TerminfoTerminal``` has several data races and one such data race happens in a memory location ````this.hideCursor````.
  
  We claim that a data race occurs in this location because of the potential of two concurrent accesses to the same memory location where one of them is a write.
@@ -230,15 +284,18 @@ its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe` and also 
  synchronized on an object called ```lock```. Hence, we infer that subsequent blocks of code that order reads and writes to the memory location ````this.hideCursor````
  must be synchronized on the object called ```lock```.
  
- There might several places where we read or write from this afformentioned memory location. We will point out two locations as examples.
- One of them is a write in method `TerminfoTerminal.init()`(referred in the error report from ```Infer```) which we do not show here. Another method where we access this memory location is
- ```supportsCursorVisibility()``` (see Method 2 above) called in method ```hideCursor()``` itself. To prevent a data race, we 
- synchronize a call to ```supportsCursorVisibility() ``` on an object called ```lock```. Refer to the solution below to see what this looks like. We can apply the same strategy to
- the afformentioned `TerminfoTerminal.init()` method to prevent a data race.
+ There might several places other where we read or write from this afformentioned memory location. We will point out two locations based on the error reports we got.
+ One of them is a write in method `TerminfoTerminal.init()`(referred in the error report 2) which is shown in Method 3 above. Notice that this method is already synchronized around the object called lock. Another method where we access this memory location is
+ ```supportsCursorVisibility()``` (see Method 2 above) called in method ```hideCursor()``` itself. 
+ 
+ To prevent a data race, we can synchronize the call to ```supportsCursorVisibility() ``` in ```hideCursor()``` method on the object called ```lock``` as a quick fix.
+ However, a better solution that fixes both the errors would be to synchronize the ```supportsCursorVisibility()``` method around the object called ```lock```.
  
 
-
 #### Solution
+
+
+Quick fix for Error 1:
 
 ```java
 @Override
@@ -255,62 +312,9 @@ public TerminalOutput hideCursor() throws NativeException {
     return this;
 }
 ```
-___
 
 
-## Issue 4
-
-#### <ins> Error Report from Infer
-
-```txt
-native-platform/src/main/java/net/rubygrapefruit/platform/internal/TerminfoTerminal.java:164: warning: THREAD_SAFETY_VIOLATION
-  Read/Write race. Non-private method `boolean TerminfoTerminal.supportsCursorVisibility()` reads without synchronization from `this.hideCursor`. Potentially races with write in method `TerminfoTerminal.init()`.
- Reporting because a superclass `class net.rubygrapefruit.platform.terminal.TerminalOutput` is annotated `@ThreadSafe`, so we assume that this method can run in parallel with other non-private methods in the class (including itself).
-  162.       @Override
-  163.       public boolean supportsCursorVisibility() {
-  164. >         return showCursor != null && hideCursor != null;
-  165.       }
-```
-
-#### <ins> Relevant Code
-
-```java
-@Override
-public boolean supportsCursorVisibility() {
-    return showCursor != null && hideCursor != null;
-}
-```
-
-#### <ins> Relevant Methods
-
-```java
-@Override
-protected void init() {
-    synchronized (lock) {
-        FunctionResult result = new FunctionResult();
-        TerminfoFunctions.initTerminal(output.ordinal(), capabilities, result);
-        if (result.isFailed()) {
-            throw new NativeException(String.format("Could not open terminal for %s: %s", getOutputDisplay(), result.getMessage()));
-        }
-        ansiTerminal = isAnsiTerminal();
-        hideCursor = TerminfoFunctions.hideCursor(result);
-        if (result.isFailed()) {
-            throw new NativeException(String.format("Could not determine hide cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
-        }
-        showCursor = TerminfoFunctions.showCursor(result);
-        if (result.isFailed()) {
-            throw new NativeException(String.format("Could not determine show cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
-        }
-        ...
-    }
-}
-```
-
-#### <ins> Analysis
-
-The ```init()``` method write to the variable hide-cursor. However, we also read hide-cursor if we call the ```supportsCursorVisibility()``` method. Since we need to acquire the lock ```lock``` for the ```init()``` method, we use the same lock for the ```supportsCursorVisibility()``` method.
-
-#### <ins> Solution
+Better Solution to solve both Errors:
 
 ```java
 public boolean supportsCursorVisibility() {
@@ -320,11 +324,15 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
+
 ___
+
+
 
 #### Issues 5-8 refer to the following repo: [Rx Java](https://github.com/ReactiveX/RxJava)
 
 ___
+## Issue 5
 
 #### <ins> Error Report from Infer
 
@@ -339,18 +347,19 @@ src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableCombineLa
   180.
 ```
 
-#### <ins> Revelant Code
+#### <ins> Revelant Methods
 
+##### Method 1
 ```java
 @Override
 public void cancel() {
     cancelled = true;
     cancelAll();
-    drain();
+    drain();                // ***** Method 2 *****
 }
 ```
 
-#### <ins> Relevant Methods
+##### Method 2
 
 ```java
 void drain() {
@@ -361,13 +370,14 @@ void drain() {
     if (outputFused) {
         drainOutput();
     } else {
-        drainAsync();
+        drainAsync();       // ***** Method 3 *****
     }
 }
 ```
 
+##### Method 3
+
 ```java
-@SuppressWarnings("unchecked")
 void drainAsync() {
     final Subscriber<? super R> a = downstream;
     final SpscLinkedArrayQueue<Object> q = queue;
@@ -377,13 +387,15 @@ void drainAsync() {
         long e = 0L;
         while (e != r) {
             ...
-            ((CombineLatestInnerSubscriber<T>)v).requestOne();
+            ((CombineLatestInnerSubscriber<T>)v).requestOne();   // ***** Method 4 referenced here *****
             e++;
         }
             ...
     }
 }
 ```
+
+##### Method 4
 
 ```java
 public void requestOne() {
@@ -399,9 +411,25 @@ public void requestOne() {
 
 #### <ins> Analysis
 
-The report claims that "non-private method `void FlowableCombineLatest$CombineLatestCoordinator.cancel()` indirectly writes to field `v.produced` outside of synchronization." If two threads access the `produced()` method concurrently, then the value of `produced` and `p` can be overwritten.
+
+From the error report, we understand that the ```drain()``` method which is called by the ```cancel()```
+method indirectly writes to the feild ```v.produced```. We also understand that the memory location
+occupied by the feild ```produced``` can potentially be accessed by background threads concurrently.
+Hence, we infer the potential of a data race, i.e. two or more concurrent accesses to this memory location where one of them is a write.
+
+As seen in in the methods referenced above, we search several methods that are transitively called by method 1 to search for the potential of
+a write to the feild ```produced``` (eg. method 1 transitively calls method 3 because it calls method 2 which calls 3).
+We find out that we write to the feild ```produced``` in the method called ```requestOne()```.
+
+Infact, we also discover that if two threads call the `requestOne()` method concurrently, then not only can there be a data race in
+the memory location occupied by the variable `produced`, but also in the memory location occupied by the
+variable `p`.
 
 #### <ins> Solution
+
+
+To solve this issue, we synchronize the call to the method ``requestOne()`` on the current instance (obtain lock on the current instance).
+
 
 ```java
 synchronized public void requestOne() {
@@ -504,9 +532,23 @@ void drain() {
 
 #### <ins> Analysis
 
-Note: Adding synchronized tag reduced the number of THREAD_SAFETY_VIOLATION from 212 to 203. This is because there are several variables (```e```, ```missed```, ```emitted```) are victims of thread violation.
+From the error report, we understand that the ```drain()``` method (note that this method is different from the one referenced in Issue 5) 
+writes to the feild ```emitted```. We also understand that the memory location
+occupied by this feild can potentially be accessed by background threads concurrently.
+Hence, we infer the potential of a data race, i.e. two or more concurrent accesses to this memory location where one of them is a write.
+
+In particular, we argue that if two methods call this ```drain()``` method concurrently then the
+feild ```emitted``` can be a victim to two or more concurrent accesses where atleast one of them is a 
+```write```.
+
 
 #### <ins> Solution
+
+
+To solve this issue, we synchronize the call to the method ``drain()`` on the current instance (obtain lock on the current instance).
+Adding synchronized modifier reduced the number of "THREAD_SAFETY_VIOLATIONS" from 212 to 203.
+Such a high decrease could have hapenned because there might be several variables like ```emitted``` that are victims of data races.
+
 
 ```java
 synchronized void drain() {
