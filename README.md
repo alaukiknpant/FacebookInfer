@@ -359,9 +359,30 @@ public TerminalOutput bright() throws NativeException {
 ```
 
 Here, the class `AnsiTerminal` operates in a multi-threaded environment. We know this because
-its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe`. We claim that there exists one data race in the memory location `this.bright`.
+its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe`.
 
-In the above method `bright()`, one thread can write `this.bright` as `true` without synchronization. However, there are several other read and write access to `this.bright` in the class `AnsiTerminal`. For instance, the following method, `foreground(color)` has read access to `this.bright`.
+The above public method `bright()` can write `this.bright` as `true` without synchronization. Hence, it is possible for two threads to write to `this.bright` concurrently when calling the `bright()` method, leading to a data race. This is aligned with the issue reported by Infer that we quoted above.
+
+#### Solution
+
+To prevent a data race, we can synchronize the call to `bright()` on the current instance (obtain lock on the current instance).
+
+```java
+@Override
+synchronized public TerminalOutput bright() throws NativeException {
+    try {
+        bright = true;
+        if (foreground != null) {
+            outputStream.write(BRIGHT_FOREGROUND.get(foreground.ordinal()));
+        }
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+Furthermore, after resolving this issue, we discovered that there are several other read and write access to `this.bright` in the class `AnsiTerminal`, and none of the methods are synchronized. For instance, the following method, `foreground(color)` has read access to `this.bright`.
 
 ```java
 public TerminalOutput foreground(Color color) throws NativeException {
@@ -379,26 +400,8 @@ public TerminalOutput foreground(Color color) throws NativeException {
 }
 ```
 
-Hence, we claim that a data race occurs in this location because of the potential of two concurrent accesses to the same memory location where one of them is a write. While one thread is writing to `this.bright` in `bright()` method, another thread might potentially be reading the variable `this.bright` in `foreground(color)`.
+Hence, even when `bright()` is synchronized, given that `foreground(color)` is not synchronized, another data race may occur because of the potential of two concurrent accesses to the same memory location where one of them is a write. While one thread is writing to `this.bright` in `bright()` method, another thread might potentially be reading the variable `this.bright` in `foreground(color)`. Thus, in this case, we can synchronize the call to `forground(color)` on the current instance (obtain lock on the current instance).
 
-To prevent a data race, we can synchronize the call to `bright()` on the current instance (obtain lock on the current instance). We also synchronize other methods that read or write to the `bright` field on the current instance.
-
-#### Solution
-
-```java
-@Override
-synchronized public TerminalOutput bright() throws NativeException {
-    try {
-        bright = true;
-        if (foreground != null) {
-            outputStream.write(BRIGHT_FOREGROUND.get(foreground.ordinal()));
-        }
-    } catch (IOException e) {
-        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
-    }
-    return this;
-}
-```
 
 ```java
 synchronized public TerminalOutput foreground(Color color) throws NativeException {
@@ -416,7 +419,7 @@ synchronized public TerminalOutput foreground(Color color) throws NativeExceptio
 }
 ```
 
-Additionally, through a bit of searching, we noticed that `bright()` is not the sole method in the class `AnsiTerminal` without synchronization. We suspect that the following method, `dim()`, `normal()`, and `reset()`, might have a data race problem for the same reason.
+Additionally, through a bit of searching, we noticed that `bright()` is not the sole method in the class `AnsiTerminal` without synchronization. The following public methods, `dim()`, `normal()`, and `reset()`, would have a data race problem for the same reason.
 
 ```java
 @Override
@@ -457,7 +460,7 @@ public TerminalOutput reset() throws NativeException {
 }
 ```
 
-Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write access to `this.bright`, we were able to reduce the number of errors in the Infer analysis by 5.
+Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write or read access to `this.bright`, we were able to reduce the number of errors in the Infer analysis by 7.
 
 ## Issue 6
 
