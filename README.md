@@ -494,26 +494,10 @@ synchronized public TerminalOutput bright() throws NativeException {
 }
 ```
 
-After fixing the previous bug, Infer is still complaining about the method `bright()`, but this time the problem is with something else. Notice that the `bright()` method checks whether `this.foreground` is not null, so this is a read access of the variable `this.foregorund`. Again, the class `AnsiTerminal` operates in a multi-threaded environment. We know this because
+After fixing the previous bug, Infer is still complaining about the method `bright()`, but this time the problem is with something else. Notice that the `bright()` method checks whether `this.foreground` is not null, so this is a read access of the variable `this.foregorund`. Again, the class `AnsiTerminal` operates in a multi-threaded environment because
 its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe`. Though the method `bright()` is now synchronized, there are under-synchronized methods with write access to `this.foreground` in the class `AnsiTerminal`, which leads to a data race in the memory location `this.foreground`.
 
-Through a bit of research, we discovered that the following two methods, `foreground(color)` and `defaultForeground()` respectively, have write access to `this.foreground` and is currently not synchronized.
-
-```java
-public TerminalOutput foreground(Color color) throws NativeException {
-    try {
-        if (bright) {
-            outputStream.write(BRIGHT_FOREGROUND.get(color.ordinal()));
-        } else {
-            outputStream.write(FOREGROUND.get(color.ordinal()));
-        }
-        foreground = color;
-    } catch (IOException e) {
-        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
-    }
-    return this;
-}
-```
+We discovered that the following two methods, `foreground(color)` and `defaultForeground()` respectively, have write access to `this.foreground`, and the `defaultForeground()` method is currently not synchronized.
 
 ```java
 @Override
@@ -528,7 +512,7 @@ public TerminalOutput defaultForeground() throws NativeException {
 }
 ```
 
-Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write access to `this.foreground`, we were able to reduce the number of errors in the Infer analysis by 5 like in Issue 5.
+Hence, to resolve such race problems, we synchronize the call to the `defaultForeground()` method on the current instance (obtain lock on the current instance) so that the methods with read or write access to `this.forground` are all synchronized around the same object.
 
 ## Issue 7
 
