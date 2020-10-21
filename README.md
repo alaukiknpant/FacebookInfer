@@ -622,16 +622,15 @@ public void requestOne() {
 
 From the error report, we understand that the ```drain()``` method which is called by the ```cancel()```
 method indirectly writes to the field ```v.produced```. We also understand that the memory location
-occupied by the filed ```produced``` can potentially be accessed by background threads concurrently.
+occupied by the field ```produced``` can potentially be accessed by background threads concurrently.
 Hence, we infer the potential of a data race, i.e. two or more concurrent accesses to this memory location where one of them is a write.
 
 As seen in in the methods referenced above, we search several methods that are transitively called by method 1 to search for the potential of
 a write to the field ```produced``` (eg. method 1 transitively calls method 3 because it calls method 2 which calls 3).
-We find out that we write to the field ```produced``` in the method called ```requestOne()```.
+We find out that we write to the field ```produced``` in the method called ```requestOne()```, which means that two threads could potentially write to the field `produced` by calling method `requestOne()` concurrently, leading to a data race.
 
 Infact, we also discover that if two threads call the `requestOne()` method concurrently, then not only can there be a data race in
-the memory location occupied by the variable `produced`, but also in the memory location occupied by the
-variable `p`.
+the memory location occupied by the variable `produced`.
 
 #### <ins> Solution
 
