@@ -698,52 +698,7 @@ void drain() {
         long r = requested.get();
 
         while (e != r) {
-            if (cancelled) {
-                q.clear();
-                return;
-            }
-
-            boolean d = done;
-            if (d && errors.get() != null) {
-                q.clear();
-                errors.tryTerminateConsumer(a);
-                return;
-            }
-
-            C v = q.poll();
-            boolean empty = v == null;
-
-            if (d && empty) {
-                a.onComplete();
-                return;
-            }
-
-            if (empty) {
-                break;
-            }
-
-            a.onNext(v);
-            e++;
-        }
-
-        if (e == r) {
-            if (cancelled) {
-                q.clear();
-                return;
-            }
-
-            if (done) {
-                if (errors.get() != null) {
-                    q.clear();
-                    errors.tryTerminateConsumer(a);
-                    return;
-                } else if (q.isEmpty()) {
-                    a.onComplete();
-                    return;
-                }
-            }
-        }
-
+        ...
         emitted = e;
         missed = addAndGet(-missed);
         if (missed == 0) {
@@ -755,22 +710,19 @@ void drain() {
 
 #### <ins> Analysis
 
-From the error report, we understand that the ```drain()``` method (note that this method is different from the one referenced in Issue 5)
-writes to the feild ```emitted```. We also understand that the memory location
-occupied by this feild can potentially be accessed by background threads concurrently.
+From the error report, we understand that the ```drain()``` method (note that this method is different from the one referenced in Issue 5 as they are under different classes)
+writes to the field ```this.emitted```. We also understand that the memory location
+occupied by this field can potentially be accessed by background threads concurrently.
 Hence, we infer the potential of a data race, i.e. two or more concurrent accesses to this memory location where one of them is a write.
 
-In particular, we argue that if two methods call this ```drain()``` method concurrently then the
-feild ```emitted``` can be a victim to two or more concurrent accesses where atleast one of them is a
-```write```.
-
+Notice that both read and write accesses exist within the `drain()` method. In particular, there is a read access to `this.emitted` when the variable `e` is introduced (i.e. the line `long e = emitted`); there is a write access to `this.emitted` when the it is updated (i.e. the line `emitted = e`). Hence, we argue that if two threads call this ```drain()``` method concurrently, then the
+field ```this.emitted``` can be a victim to two or more concurrent accesses where at least one of them is a ```write```.
 
 #### <ins> Solution
 
-
 To solve this issue, we synchronize the call to the method ``drain()`` on the current instance (obtain lock on the current instance).
 Adding synchronized modifier reduced the number of "THREAD_SAFETY_VIOLATIONS" from 212 to 203.
-Such a high decrease could have hapenned because there might be several variables like ```emitted``` that are victims of data races.
+Such a high decrease could have hapenned because there might be several other variables like ```this.emitted``` within the `drain()` method that are victims of data races.
 
 
 ```java
