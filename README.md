@@ -16,9 +16,9 @@ locks to control their accesses to that memory.[[2]](https://ilyasergey.net/YSC3
 
 RacerD's distinguishing feature is that it is compositional, i.e. it does not do a whole program
 analysis. It does so by reasoning sequentially about memory accesses, locks and threads. This report
-highlights the issues we found on popular non-trivial Java codebases using this tool.
+highlights the issues we found on popular non-trivial Java codebases using this tool. In particular, this report will examine 9 data race issues detected by Infer from two GitHub repositories.
 ___
-#### Issues 1-4 refer to the following repo: [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
+#### Issues 1-7 refer to the following repo: [Native-platform: Java bindings for native APIs](https://github.com/gradle/native-platform)
 ___
 
 ## Issue 1
@@ -105,7 +105,9 @@ public TerminalOutput bold() {
 ```
 We implemented the above solution because the method `init()` is synchronized around the object called "lock". Recall that this definiton of lock is as follows:
 
-                                              private final Object lock = new Object();
+```java
+private final Object lock = new Object();
+```
 
 To avoid data race, we need to use insert "synchronized (lock)" around the if-statement with `supportsTextAttributes()` where it is currently missing. In this way, we use the same lock for all read and write access of `this.boldOn`. Hence the reading and writing the variable must occur in a mutually-exclusive manner, and the issue regarding this data race is resolved.
 
@@ -693,7 +695,7 @@ synchronized public void requestOne() {
 }
 ```
 
-### Issue 9
+## Issue 9
 
 #### <ins> Error Report from Infer
 
@@ -761,4 +763,4 @@ synchronized void drain() {
 
 ## Conclusion
 
-In this research project, we were able to catch bugs on fairly popular repositories coded by experienced programmers with the help of a very powerful code analysis tool `Infer`. This indeed proves that Concurrency is Hard. We also discovered that many safety violations are very similar in nature, and hence a small fix can possibly remove several bugs at the same time. Furthermore, we discovered that `Infer` is not able to distinguish between the locks with different identities. We believe that this is due to trade-off between considerations such as soundness, efficiency, and user-friendliness.
+In this research project, we were able to catch bugs on fairly popular repositories coded by experienced programmers with the help of a very powerful code analysis tool `Infer`. This indeed proves that Concurrency is Hard. We also discovered that many safety violations are very similar in nature, and hence a small fix can possibly remove several bugs at the same time. Furthermore, we discovered that `Infer` does not distinguish between locks with different identities. We believe that this is due to trade-off between multiple considerations such as soundness, efficiency, and user-friendliness.
