@@ -104,7 +104,7 @@ public TerminalOutput bold() {
 ```
 We implemented the above solution because the method `init()` is synchronized around the object called "lock". Recall that this definiton of lock is as follows:
 
-                                            ```private final Object lock = new Object();```
+                                              private final Object lock = new Object();
 
 To avoid data race, we need to use insert "synchronized (lock)" around the if-statement with `supportsTextAttributes()` where it is currently missing. In this way, we use the same lock for all read and write access of `this.boldOn`. Hence the reading and writing the variable must occur in a mutually-exclusive manner, and the issue regarding this data race is resolved.
 
