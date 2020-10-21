@@ -378,7 +378,7 @@ public TerminalOutput foreground(Color color) throws NativeException {
 
 Hence, we claim that a data race occurs in this location because of the potential of two concurrent accesses to the same memory location where one of them is a write. While one thread is writing to `this.bright` in `bright()` method, another thread might potentially be reading the variable `this.bright` in `foreground(color)`.
 
-To prevent a data race, we can synchronize the call to `bright() ` method on the object called `lock`.
+To prevent a data race, we can synchronize the call to `bright()` on the current instance (obtain lock on the current instance). We also synchronize other methods that read or write to the `bright` field on the current instance.
 
 #### Solution
 
@@ -397,7 +397,23 @@ synchronized public TerminalOutput bright() throws NativeException {
 }
 ```
 
-Additionally, through a bit of searching, we noticed that `bright()` is not the sole instance in the class `AnsiTerminal` without synchronization. We suspect that the following method, `dim()`, `normal()`, and `reset()`, might have a data race problem for the same reason.
+```java
+synchronized public TerminalOutput foreground(Color color) throws NativeException {
+    try {
+        if (bright) {
+            outputStream.write(BRIGHT_FOREGROUND.get(color.ordinal()));
+        } else {
+            outputStream.write(FOREGROUND.get(color.ordinal()));
+        }
+        foreground = color;
+    } catch (IOException e) {
+        throw new NativeException(String.format("Could not set foreground color on %s.", getOutputDisplay()), e);
+    }
+    return this;
+}
+```
+
+Additionally, through a bit of searching, we noticed that `bright()` is not the sole method in the class `AnsiTerminal` without synchronization. We suspect that the following method, `dim()`, `normal()`, and `reset()`, might have a data race problem for the same reason.
 
 ```java
 @Override
@@ -438,7 +454,7 @@ public TerminalOutput reset() throws NativeException {
 }
 ```
 
-Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the object called `lock`. by fixing this issue with under-synchronization of the call to methods that contains the write access to `this.bright`, we were able to reduce the number of errors in the Infer analysis by 5.
+Hence, to resolve such race problems, we synchronize the call to the abovementioned methods on the current instance (obtain lock on the current instance). By fixing this issue with under-synchronization of the call to methods that contains the write access to `this.bright`, we were able to reduce the number of errors in the Infer analysis by 5.
 
 ## Issue 10
 
