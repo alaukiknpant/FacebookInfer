@@ -1,4 +1,5 @@
 # Using Facebook Infer to Detect Data Races in Java
+##### Xinyu and Alaukik (YSC3248: PCDP - Fall 2020)
 
 ## Introduction
 
@@ -553,7 +554,7 @@ ___
 
 
 
-#### Issues 8-12 refer to the following repo: [Rx Java](https://github.com/ReactiveX/RxJava)
+#### Issues 8-9 refer to the following repo: [Rx Java](https://github.com/ReactiveX/RxJava)
 
 ___
 ## Issue 8
@@ -731,4 +732,4 @@ synchronized void drain() {
 
 ## Conclusion
 
-Clearly, `Infer` was able to catch bugs on fairly popular repositories coded by experienced programmers. This indeed proves that Concurrency is hard.
+Clearly, `Infer` was able to catch bugs on fairly popular repositories coded by experienced programmers. This indeed proves that Concurrency is Hard.
