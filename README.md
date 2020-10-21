@@ -573,7 +573,7 @@ src/main/java/io/reactivex/rxjava3/internal/operators/flowable/FlowableCombineLa
 
 #### <ins> Revelant Methods
 
-###### Method 1
+##### Method 1
 ```java
 @Override
 public void cancel() {
@@ -583,7 +583,7 @@ public void cancel() {
 }
 ```
 
-###### Method 2
+##### Method 2
 
 ```java
 void drain() {
@@ -644,9 +644,6 @@ Hence, we infer the potential of a data race, i.e. two or more concurrent access
 As seen in in the methods referenced above, we search several methods that are transitively called by method 1 to search for the potential of
 a write to the field ```produced``` (eg. method 1 transitively calls method 3 because it calls method 2 which calls 3).
 We find out that we write to the field ```produced``` in the method called ```requestOne()```, which means that two threads could potentially write to the field `produced` by calling method `requestOne()` concurrently, leading to a data race.
-
-Infact, we also discover that if two threads call the `requestOne()` method concurrently, then not only can there be a data race in
-the memory location occupied by the variable `produced`.
 
 #### <ins> Solution
 
