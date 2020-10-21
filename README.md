@@ -259,7 +259,7 @@ protected void init() {
             throw new NativeException(String.format("Could not open terminal for %s: %s", getOutputDisplay(), result.getMessage()));
         }
         ansiTerminal = isAnsiTerminal();
-        hideCursor = TerminfoFunctions.hideCursor(result);             //****** hideCursor refereced here ******
+        hideCursor = TerminfoFunctions.hideCursor(result);             //****** hideCursor refereced here (Write operation)******
         if (result.isFailed()) {
             throw new NativeException(String.format("Could not determine hide cursor control sequence for %s: %s", getOutputDisplay(), result.getMessage()));
         }
@@ -276,20 +276,14 @@ protected void init() {
 
 
 Here, the class `TerminfoTerminal` that contains the afformentioned methods operates in a multi-threaded environment. We know this because
-its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe` and also by the fact that the methods ```hideCursor()``` and ```init()``` have the synchronized modifiers in them.
-```TerminfoTerminal``` has several data races and one such data race happens in a memory location ````this.hideCursor````.
+its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe` and also by the fact that the methods ```hideCursor()``` and ```init()``` have the synchronized modifiers in them. ```TerminfoTerminal``` has several data races and one such data race happens in a memory location ````this.hideCursor````.
 
  We claim that a data race occurs in this location because of the potential of two concurrent accesses to the same memory location where one of them is a write.
- One place where a thread can write to ````this.hideCursor```` happens in ```hideCursor()``` method (referring to code - `write(hideCursor)` - in Method 1). Notice here that the write is
- synchronized on an object called ```lock```. Hence, we infer that subsequent blocks of code that order reads and writes to the memory location ````this.hideCursor````
- must be synchronized on the object called ```lock```.
+ One place where a thread can write to ````this.hideCursor```` happens in a write in method `TerminfoTerminal.init()`(referred in the error report 2) which is shown in Method 3 above. Notice that this method is already synchronized around the object called lock. Hence, we infer that subsequent blocks of code that order reads and writes to the memory location ````this.hideCursor```` must be synchronized on the object called ```lock```.
+ 
+ There might several other places where we read or write from this afformentioned memory location. We will point out two locations based on the error reports we got. First, in the```hideCursor()``` method, we see a read (referring to code - `write(hideCursor)` - in Method 1) of the ````hideCursor```` feild. Another method where we access this memory location is ```supportsCursorVisibility()``` (see Method 2 above), which is called in method ```hideCursor()``` method.
 
- There might several places other where we read or write from this afformentioned memory location. We will point out two locations based on the error reports we got.
- One of them is a write in method `TerminfoTerminal.init()`(referred in the error report 2) which is shown in Method 3 above. Notice that this method is already synchronized around the object called lock. Another method where we access this memory location is
- ```supportsCursorVisibility()``` (see Method 2 above) called in method ```hideCursor()``` itself.
-
- To prevent a data race, we can synchronize the call to ```supportsCursorVisibility() ``` in ```hideCursor()``` method on the object called ```lock``` as a quick fix.
- However, a better solution that fixes both the errors would be to synchronize the ```supportsCursorVisibility()``` method around the object called ```lock```.
+ To prevent a data race, we must synchronize each call to ```supportsCursorVisibility() ```. This can be done in two ways.  We can synchronize a call to this method within the ```hideCursor()``` method on the object called ```lock``` as a quick fix. However, a better solution that fixes both the errors would be to synchronize the ```supportsCursorVisibility()``` method around the object called ```lock```. This ensures that if other methods try to access this memory location through ```supportsCursorVisibility()```, they have to acquire a lock.
 
 
 #### Solution
@@ -314,7 +308,7 @@ public TerminalOutput hideCursor() throws NativeException {
 ```
 
 
-Better Solution to solve both Errors:
+Better Solution:
 
 ```java
 public boolean supportsCursorVisibility() {
