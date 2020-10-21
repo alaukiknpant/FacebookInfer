@@ -248,7 +248,7 @@ public boolean supportsCursorVisibility() {
 }
 ```
 
-### Method 3
+#### Method 3
 
 ```java
 @Override
