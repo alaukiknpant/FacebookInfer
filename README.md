@@ -102,7 +102,11 @@ public TerminalOutput bold() {
     return this;
 }
 ```
-We implemented the above solution because the method `init()` has the synchronized modifiers "lock" in it. To avoid data race, we need to use insert "synchronized (lock)" around the if-statement with `supportsTextAttributes()` where it is currently missing. In this way, we use the same lock for all read and write access of `this.boldOn`. Hence the reading and writing the variable must occur in a mutually-exclusive manner, and the issue regarding this data race is resolved.
+We implemented the above solution because the method `init()` is synchronized around the object called "lock". Recall that this definiton of lock is as follows:
+
+                                            ```private final Object lock = new Object();```
+
+To avoid data race, we need to use insert "synchronized (lock)" around the if-statement with `supportsTextAttributes()` where it is currently missing. In this way, we use the same lock for all read and write access of `this.boldOn`. Hence the reading and writing the variable must occur in a mutually-exclusive manner, and the issue regarding this data race is resolved.
 
 ___
 
@@ -280,9 +284,9 @@ Here, the class `TerminfoTerminal` that contains the afformentioned methods oper
 its superclass `terminal.TerminalOutput` is annotated as `@ThreadSafe` and also by the fact that the methods ```hideCursor()``` and ```init()``` have the synchronized modifiers in them. ```TerminfoTerminal``` has several data races and one such data race happens in a memory location ````this.hideCursor````.
 
  We claim that a data race occurs in this location because of the potential of two concurrent accesses to the same memory location where one of them is a write.
- One place where a thread can write to the ````hideCursor```` feild happens in the method `TerminfoTerminal.init()`(referred in the error report 2) which is shown in Method 3 above. Notice that this method is already synchronized around the object called lock. Hence, we infer that subsequent blocks of code that order reads and writes to the memory location ````this.hideCursor```` must be synchronized on the object called ```lock```.
+ One place where a thread can write to the ````hideCursor```` field happens in the method `TerminfoTerminal.init()`(referred in the error report 2) which is shown in Method 3 above. Notice that this method is already synchronized around the object called lock. Hence, we infer that subsequent blocks of code that order reads and writes to the memory location ````this.hideCursor```` must be synchronized on the object called ```lock```.
  
- There might be several other places where we read or write from this afformentioned memory location. We will point out two locations based on the error reports we got. First, we see a read of the ````hideCursor```` feild in the```hideCursor()``` method (referring to code - `write(hideCursor)` - in Method 1). Another method where we read this memory location is in the ```supportsCursorVisibility()``` method (see Method 2 above), which is called by the ```hideCursor()``` method.
+ There might be several other places where we read or write from this afformentioned memory location. We will point out two locations based on the error reports we got. First, we see a read of the ````hideCursor```` field in the```hideCursor()``` method (referring to code - `write(hideCursor)` - in Method 1). Another method where we read this memory location is in the ```supportsCursorVisibility()``` method (see Method 2 above), which is called by the ```hideCursor()``` method.
 
  To prevent a data race, we must synchronize each call to ```supportsCursorVisibility() ```. This can be done in two ways.  We can synchronize a call to this method within the ```hideCursor()``` method on the object called ```lock``` as a quick fix. However, a better solution that fixes both the errors would be to synchronize the entire ```supportsCursorVisibility()``` method around the object called ```lock```. This ensures that if other methods try to access the memory location ````hideCursor```` through ```supportsCursorVisibility()```, they have to synchronize on the object called ```lock```.
 
@@ -617,13 +621,13 @@ public void requestOne() {
 
 
 From the error report, we understand that the ```drain()``` method which is called by the ```cancel()```
-method indirectly writes to the feild ```v.produced```. We also understand that the memory location
-occupied by the feild ```produced``` can potentially be accessed by background threads concurrently.
+method indirectly writes to the field ```v.produced```. We also understand that the memory location
+occupied by the filed ```produced``` can potentially be accessed by background threads concurrently.
 Hence, we infer the potential of a data race, i.e. two or more concurrent accesses to this memory location where one of them is a write.
 
 As seen in in the methods referenced above, we search several methods that are transitively called by method 1 to search for the potential of
-a write to the feild ```produced``` (eg. method 1 transitively calls method 3 because it calls method 2 which calls 3).
-We find out that we write to the feild ```produced``` in the method called ```requestOne()```.
+a write to the field ```produced``` (eg. method 1 transitively calls method 3 because it calls method 2 which calls 3).
+We find out that we write to the field ```produced``` in the method called ```requestOne()```.
 
 Infact, we also discover that if two threads call the `requestOne()` method concurrently, then not only can there be a data race in
 the memory location occupied by the variable `produced`, but also in the memory location occupied by the
